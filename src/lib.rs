@@ -548,7 +548,7 @@ impl TerminalApp {
         let total_count = self.current_completions.len();
         let max_display = 5;
 
-        // Calculate the display window to ensure selected item is visible
+        // Calculate the display window to ensure the selected item is visible
         let (start_idx, end_idx) = if total_count <= max_display {
             (0, total_count)
         } else {
