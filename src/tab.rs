@@ -4,20 +4,15 @@
 //! completion items based on input context, without requiring strict prefix matching.
 
 /// Matching strategy for filtering completion candidates.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum MatchStrategy {
     /// Show all completions regardless of the current input
     All,
     /// Match completions that start with the current input suffix
+    #[default]
     Prefix,
     /// Match completions that contain the current input suffix
     Contains,
-}
-
-impl Default for MatchStrategy {
-    fn default() -> Self {
-        MatchStrategy::Prefix
-    }
 }
 
 /// A single completion item with text and optional description.
@@ -248,11 +243,12 @@ impl TabTree {
             best: &mut &'a TabNode,
             best_len: &mut usize,
         ) {
-            if let Some(trigger) = &node.trigger {
-                if input.starts_with(trigger) && trigger.len() > *best_len {
-                    *best = node;
-                    *best_len = trigger.len();
-                }
+            if let Some(trigger) = &node.trigger
+                && input.starts_with(trigger)
+                && trigger.len() > *best_len
+            {
+                *best = node;
+                *best_len = trigger.len();
             }
 
             for child in &node.children {

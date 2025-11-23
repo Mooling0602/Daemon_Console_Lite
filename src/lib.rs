@@ -372,8 +372,8 @@ impl TerminalApp {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(50)) => {
-                    if poll(std::time::Duration::from_millis(0))? {
-                        if let Ok(event) = event::read() {
+                    if poll(std::time::Duration::from_millis(0))?
+                        && let Ok(event) = event::read() {
                             if let Event::Key(KeyEvent { code: KeyCode::Enter, .. }) = event {
                                 let (should_exit, input) = self.handle_enter_key("> ").await?;
                                 if should_exit {
@@ -386,7 +386,6 @@ impl TerminalApp {
                                 return Ok(None);
                             }
                         }
-                    }
                 }
             }
 
@@ -733,12 +732,12 @@ impl TerminalApp {
                 .clone();
             self.cursor_position = self.current_input.chars().count();
             self.update_completions();
-        } else if let Some(tree) = &mut self.tab_tree {
-            if let Some(completion) = tree.get_best_match(&self.current_input) {
-                self.current_input = completion;
-                self.cursor_position = self.current_input.chars().count();
-                self.update_completions();
-            }
+        } else if let Some(tree) = &mut self.tab_tree
+            && let Some(completion) = tree.get_best_match(&self.current_input)
+        {
+            self.current_input = completion;
+            self.cursor_position = self.current_input.chars().count();
+            self.update_completions();
         }
     }
 
