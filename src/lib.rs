@@ -61,6 +61,8 @@ pub struct TerminalApp {
     current_completions: Vec<CompletionCandidate>,
     hints_rendered: bool,
     selected_completion_index: usize,
+    raw_mode_enabled: bool,
+    enable_raw_mode_on_windows: bool,
 }
 
 impl Default for TerminalApp {
@@ -80,6 +82,10 @@ impl TerminalApp {
     }
 
     /// Creates a new terminal application instance with default settings.
+    /// 
+    /// On Windows, raw mode is disabled by default to allow text selection.
+    /// Call `enable_raw_mode_on_windows()` before `init_terminal()` if you need
+    /// full keyboard input handling (but this will disable text selection).
     pub fn new() -> Self {
         Self {
             stdout_handle: stdout(),
@@ -94,7 +100,18 @@ impl TerminalApp {
             current_completions: Vec::new(),
             hints_rendered: false,
             selected_completion_index: 0,
+            raw_mode_enabled: false,
+            enable_raw_mode_on_windows: false,
         }
+    }
+    
+    /// Enables raw mode on Windows for better keyboard input handling.
+    /// 
+    /// Call this method before `init_terminal()` to enable raw mode on Windows.
+    /// Note: This will disable text selection in the terminal on Windows.
+    /// On non-Windows platforms, raw mode is always enabled.
+    pub fn enable_raw_mode_on_windows(&mut self) {
+        self.enable_raw_mode_on_windows = true;
     }
 
     /// Enables tab completion and initializes the completion tree.
@@ -172,9 +189,31 @@ impl TerminalApp {
     }
 
     /// Sets up the terminal in raw mode and enables mouse capture
+    /// 
+    /// On Windows, raw mode is disabled by default to allow text selection.
+    /// Call `enable_raw_mode_on_windows()` before `init_terminal()` if you need
+    /// full keyboard input handling (but this will disable text selection).
     fn setup_terminal(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        enable_raw_mode()?;
-        execute!(&mut self.stdout_handle, EnableMouseCapture, cursor::Hide)?;
+        #[cfg(windows)]
+        {
+            if self.enable_raw_mode_on_windows {
+                enable_raw_mode()?;
+                self.raw_mode_enabled = true;
+                execute!(&mut self.stdout_handle, EnableMouseCapture, cursor::Hide)?;
+            } else {
+                // On Windows, don't enable raw mode to allow text selection
+                // This means keyboard input handling may be limited
+                self.raw_mode_enabled = false;
+                execute!(&mut self.stdout_handle, cursor::Hide)?;
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            enable_raw_mode()?;
+            self.raw_mode_enabled = true;
+            execute!(&mut self.stdout_handle, EnableMouseCapture, cursor::Hide)?;
+        }
+        
         self.stdout_handle.flush()?;
         Ok(())
     }
@@ -329,8 +368,13 @@ impl TerminalApp {
         &mut self,
         exit_message: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        disable_raw_mode()?;
-        execute!(self.stdout_handle, DisableMouseCapture, cursor::Show)?;
+        if self.raw_mode_enabled {
+            disable_raw_mode()?;
+            execute!(self.stdout_handle, DisableMouseCapture, cursor::Show)?;
+        } else {
+            // If raw mode wasn't enabled, we only need to show the cursor
+            execute!(self.stdout_handle, cursor::Show)?;
+        }
         writeln!(self.stdout_handle, "{}", exit_message)?;
         self.stdout_handle.flush()?;
         Ok(())
