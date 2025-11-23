@@ -82,7 +82,7 @@ impl TerminalApp {
     }
 
     /// Creates a new terminal application instance with default settings.
-    /// 
+    ///
     /// On Windows, raw mode is disabled by default to allow text selection.
     /// Call `enable_raw_mode_on_windows()` before `init_terminal()` if you need
     /// full keyboard input handling (but this will disable text selection).
@@ -104,9 +104,9 @@ impl TerminalApp {
             enable_raw_mode_on_windows: false,
         }
     }
-    
+
     /// Enables raw mode on Windows for better keyboard input handling.
-    /// 
+    ///
     /// Call this method before `init_terminal()` to enable raw mode on Windows.
     /// Note: This will disable text selection in the terminal on Windows.
     /// On non-Windows platforms, raw mode is always enabled.
@@ -189,7 +189,7 @@ impl TerminalApp {
     }
 
     /// Sets up the terminal in raw mode and enables mouse capture
-    /// 
+    ///
     /// On Windows, raw mode is disabled by default to allow text selection.
     /// Call `enable_raw_mode_on_windows()` before `init_terminal()` if you need
     /// full keyboard input handling (but this will disable text selection).
@@ -213,7 +213,7 @@ impl TerminalApp {
             self.raw_mode_enabled = true;
             execute!(&mut self.stdout_handle, EnableMouseCapture, cursor::Hide)?;
         }
-        
+
         self.stdout_handle.flush()?;
         Ok(())
     }
@@ -698,10 +698,10 @@ impl TerminalApp {
     ///
     /// Returns (should_quit, message_to_display).
     pub async fn handle_ctrl_c(&mut self) -> Result<(bool, String), Box<dyn std::error::Error>> {
+        self.current_completions.clear();
         if !self.current_input.is_empty() {
             self.current_input.clear();
             self.cursor_position = 0;
-            self.current_completions.clear();
             self.last_ctrl_c = Some(Instant::now());
             return Ok((
                 false,
