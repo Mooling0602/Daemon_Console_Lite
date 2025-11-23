@@ -539,13 +539,30 @@ impl TerminalApp {
     /// `SavePosition`/`RestorePosition` to render hints without permanently
     /// affecting the cursor position. Sets `hints_rendered` to true.
     ///
-    /// Displays up to 5 completion candidates. The selected candidate is
-    /// highlighted in cyan, others in dark gray.
+    /// Displays up to 5 completion candidates with smooth scrolling. The selected
+    /// candidate is always visible and highlighted in cyan, others in dark gray.
     fn render_completion_hints(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         use crossterm::cursor::{RestorePosition, SavePosition};
         use crossterm::style::{Color, ResetColor, SetForegroundColor};
 
-        let display_count = self.current_completions.len().min(5);
+        let total_count = self.current_completions.len();
+        let max_display = 5;
+
+        // Calculate the display window to ensure selected item is visible
+        let (start_idx, end_idx) = if total_count <= max_display {
+            (0, total_count)
+        } else {
+            // Center the selected item in the window when possible
+            let half_window = max_display / 2;
+            let start = if self.selected_completion_index <= half_window {
+                0
+            } else if self.selected_completion_index >= total_count - half_window {
+                total_count - max_display
+            } else {
+                self.selected_completion_index - half_window
+            };
+            (start, start + max_display)
+        };
 
         execute!(
             self.stdout_handle,
@@ -554,17 +571,18 @@ impl TerminalApp {
             cursor::MoveToColumn(0)
         )?;
 
-        for (i, candidate) in self
+        for (idx, candidate) in self
             .current_completions
             .iter()
-            .take(display_count)
             .enumerate()
+            .skip(start_idx)
+            .take(end_idx - start_idx)
         {
-            if i > 0 {
+            if idx > start_idx {
                 execute!(self.stdout_handle, crossterm::style::Print("  "))?;
             }
 
-            let is_selected = i == self.selected_completion_index;
+            let is_selected = idx == self.selected_completion_index;
             let color = if is_selected {
                 Color::Cyan
             } else {
@@ -584,14 +602,26 @@ impl TerminalApp {
             execute!(self.stdout_handle, crossterm::style::Print(&item_text))?;
         }
 
-        if self.current_completions.len() > display_count {
-            execute!(
-                self.stdout_handle,
-                crossterm::style::Print(&format!(
-                    "  (+{})",
-                    self.current_completions.len() - display_count
-                ))
-            )?;
+        // Show indicator for hidden items
+        if start_idx > 0 || end_idx < total_count {
+            let hidden_left = start_idx;
+            let hidden_right = total_count - end_idx;
+            if hidden_left > 0 && hidden_right > 0 {
+                execute!(
+                    self.stdout_handle,
+                    crossterm::style::Print(&format!("  (+{}/+{})", hidden_left, hidden_right))
+                )?;
+            } else if hidden_left > 0 {
+                execute!(
+                    self.stdout_handle,
+                    crossterm::style::Print(&format!("  (+{}←)", hidden_left))
+                )?;
+            } else {
+                execute!(
+                    self.stdout_handle,
+                    crossterm::style::Print(&format!("  (→+{})", hidden_right))
+                )?;
+            }
         }
 
         execute!(
