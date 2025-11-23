@@ -615,6 +615,19 @@ impl TerminalApp {
             cursor::MoveToColumn(0)
         )?;
 
+        let hidden_left = start_idx;
+        let hidden_right = total_count - end_idx;
+
+        // Show left hidden count if any
+        if hidden_left > 0 {
+            execute!(
+                self.stdout_handle,
+                SetForegroundColor(Color::DarkGrey),
+                crossterm::style::Print(&format!(" (+{})", hidden_left))
+            )?;
+        }
+
+        // Show visible candidates
         for (idx, candidate) in self
             .current_completions
             .iter()
@@ -622,8 +635,8 @@ impl TerminalApp {
             .skip(start_idx)
             .take(end_idx - start_idx)
         {
-            if idx > start_idx {
-                execute!(self.stdout_handle, crossterm::style::Print("  "))?;
+            if idx > start_idx || hidden_left > 0 {
+                execute!(self.stdout_handle, crossterm::style::Print(" "))?;
             }
 
             let is_selected = idx == self.selected_completion_index;
@@ -646,26 +659,13 @@ impl TerminalApp {
             execute!(self.stdout_handle, crossterm::style::Print(&item_text))?;
         }
 
-        // Show indicator for hidden items
-        if start_idx > 0 || end_idx < total_count {
-            let hidden_left = start_idx;
-            let hidden_right = total_count - end_idx;
-            if hidden_left > 0 && hidden_right > 0 {
-                execute!(
-                    self.stdout_handle,
-                    crossterm::style::Print(&format!("  (+{}/+{})", hidden_left, hidden_right))
-                )?;
-            } else if hidden_left > 0 {
-                execute!(
-                    self.stdout_handle,
-                    crossterm::style::Print(&format!("  (+{}←)", hidden_left))
-                )?;
-            } else {
-                execute!(
-                    self.stdout_handle,
-                    crossterm::style::Print(&format!("  (→+{})", hidden_right))
-                )?;
-            }
+        // Show right hidden count if any
+        if hidden_right > 0 {
+            execute!(
+                self.stdout_handle,
+                SetForegroundColor(Color::DarkGrey),
+                crossterm::style::Print(&format!(" (+{})", hidden_right))
+            )?;
         }
 
         execute!(
