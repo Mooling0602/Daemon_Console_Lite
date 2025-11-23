@@ -1,10 +1,10 @@
 [package]
 name = "daemon_console_lite"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.90.0"
 authors = ["Mooling0602 <CleMooling@outlook.com>"]
-description = "A flexible console for daemon applications."
+description = "A simple console library for daemon applications."
 repository = "https://github.com/Mooling0602/Daemon_Console_Lite"
 homepage = "https://crates.io/crates/daemon_console_lite"
 license = "GPL-3.0"
@@ -12,11 +12,7 @@ readme = "README.md"
 documentation = "https://docs.rs/daemon_console_lite"
 keywords = ["console", "daemon", "terminal", "tui"]
 categories = ["command-line-utilities", "command-line-interface"]
-exclude = [
-    "target/",
-    ".git/",
-    ".gitignore",
-]
+exclude = ["target/", ".git/", ".gitignore"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -37,6 +33,6 @@ name = "test"
 path = "test/main.rs"
 
 # The profile that 'dist' will build with
-# [profile.dist]
-# inherits = "release"
-# lto = "thin"
+[profile.dist]
+inherits = "release"
+lto = "thin"
