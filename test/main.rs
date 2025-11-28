@@ -89,8 +89,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = TerminalApp::new();
     let mut node_counter: usize = 0; // 维护 node 数量计数器
 
+    app.enable_raw_mode_on_windows();
     app.enable_tab_completion();
-    app.register_tab_completions("", &["version", "exit", "help", "config"]);
+    app.register_tab_completions("", &["version", "exit", "help", "config", "app"]);
     app.register_tab_completions("config", &["start", "stop", "restart", "status", "set"]);
     app.register_tab_completions_with_desc(
         "app",
