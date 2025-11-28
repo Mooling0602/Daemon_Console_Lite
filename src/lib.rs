@@ -56,6 +56,7 @@ pub struct TerminalApp {
     pub last_ctrl_c: Option<Instant>,
     pub cursor_position: usize,
     pub should_exit: bool,
+    pub app_name: String,
     last_key_event: Option<KeyEvent>,
     tab_tree: Option<TabTree>,
     current_completions: Vec<CompletionCandidate>,
@@ -95,6 +96,7 @@ impl TerminalApp {
             last_ctrl_c: None,
             cursor_position: 0,
             should_exit: false,
+            app_name: String::from("Daemon Console"),
             last_key_event: None,
             tab_tree: None,
             current_completions: Vec::new(),
@@ -705,10 +707,7 @@ impl TerminalApp {
             self.last_ctrl_c = Some(Instant::now());
             return Ok((
                 false,
-                get_info!(
-                    "Input cleared. Press Ctrl+C again to exit.",
-                    "Daemon Console"
-                ),
+                get_info!("Input cleared. Press Ctrl+C again to exit.", &self.app_name),
             ));
         }
         if let Some(last_time) = self.last_ctrl_c
@@ -716,13 +715,13 @@ impl TerminalApp {
         {
             return Ok((
                 true,
-                get_warn!("Exiting application. Goodbye!", "Daemon Console"),
+                get_warn!("Exiting application. Goodbye!", &self.app_name),
             ));
         }
         self.last_ctrl_c = Some(Instant::now());
         Ok((
             false,
-            get_info!("Press Ctrl+C again to exit.", "Daemon Console"),
+            get_info!("Press Ctrl+C again to exit.", &self.app_name),
         ))
     }
 

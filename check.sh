@@ -7,4 +7,3 @@ echo "Final check:"
 cargo check
 echo "Show project status (Git):"
 git status
-

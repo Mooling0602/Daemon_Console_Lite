@@ -10,6 +10,17 @@ fn handle_input(app: &mut TerminalApp, input: &str, node_counter: &mut usize) ->
             app.info("Exiting...");
             true
         }
+        input if input.starts_with("set-name ") => {
+            let parts: Vec<&str> = input.split_whitespace().collect();
+            if parts.len() != 2 {
+                app.info("Usage: set-name <name>");
+                return false;
+            }
+            let new_name = parts[1];
+            app.app_name = new_name.to_string();
+            app.info(&format!("App name set to: {}", new_name));
+            false
+        }
         input if input.starts_with("config start") => {
             app.info("Starting service...");
             false
@@ -81,6 +92,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.enable_tab_completion();
     app.register_tab_completions("", &["version", "exit", "help", "config"]);
     app.register_tab_completions("config", &["start", "stop", "restart", "status", "set"]);
+    app.register_tab_completions_with_desc(
+        "app",
+        &[("set-name", "Set the name of the application.")],
+    );
     app.register_tab_completions_with_desc(
         "config set",
         &[
