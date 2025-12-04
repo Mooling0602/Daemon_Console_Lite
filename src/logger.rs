@@ -31,7 +31,7 @@ pub enum LogLevel {
 /// # Examples
 ///
 /// ```
-/// use daemon_console::logger::{log_message, LogLevel};
+/// use daemon_console_lite::logger::{log_message, LogLevel};
 ///
 /// let msg = log_message(LogLevel::Info, "Application started", Some("main"));
 /// println!("{}", msg);
@@ -106,7 +106,7 @@ pub fn format_multiline_message(
 /// # Examples
 ///
 /// ```
-/// use daemon_console::get_info;
+/// use daemon_console_lite::get_info;
 ///
 /// let msg = get_info!("Server started");
 /// let msg_with_module = get_info!("Database connected", "db");
@@ -130,7 +130,7 @@ macro_rules! get_info {
 /// # Examples
 ///
 /// ```
-/// use daemon_console::get_warn;
+/// use daemon_console_lite::get_warn;
 ///
 /// let msg = get_warn!("Memory usage high");
 /// let msg_with_module = get_warn!("Connection timeout", "network");
@@ -154,7 +154,7 @@ macro_rules! get_warn {
 /// # Examples
 ///
 /// ```
-/// use daemon_console::get_error;
+/// use daemon_console_lite::get_error;
 ///
 /// let msg = get_error!("Failed to connect");
 /// let msg_with_module = get_error!("Authentication failed", "auth");
@@ -178,7 +178,7 @@ macro_rules! get_error {
 /// # Examples
 ///
 /// ```
-/// use daemon_console::get_debug;
+/// use daemon_console_lite::get_debug;
 ///
 /// let msg = get_debug!("Variable value: 42");
 /// let msg_with_module = get_debug!("Request received", "http");
@@ -202,7 +202,7 @@ macro_rules! get_debug {
 /// # Examples
 ///
 /// ```
-/// use daemon_console::get_critical;
+/// use daemon_console_lite::get_critical;
 ///
 /// let msg = get_critical!("Critical error");
 /// let msg_with_module = get_critical!("Critical error", "database");

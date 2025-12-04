@@ -13,7 +13,6 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut app = TerminalApp::new();
-//!     app.run("Welcome!", "Goodbye!").await?;
 //!     Ok(())
 //! }
 //! ```
