@@ -56,13 +56,12 @@ pub struct TerminalApp {
     pub cursor_position: usize,
     pub should_exit: bool,
     pub app_name: String,
+    pub raw_mode_enabled: bool,
     last_key_event: Option<KeyEvent>,
     tab_tree: Option<TabTree>,
     current_completions: Vec<CompletionCandidate>,
     hints_rendered: bool,
     selected_completion_index: usize,
-    raw_mode_enabled: bool,
-    enable_raw_mode_on_windows: bool,
 }
 
 impl Default for TerminalApp {
@@ -96,24 +95,33 @@ impl TerminalApp {
             cursor_position: 0,
             should_exit: false,
             app_name: String::from("Daemon Console"),
+            raw_mode_enabled: false,
             last_key_event: None,
             tab_tree: None,
             current_completions: Vec::new(),
             hints_rendered: false,
             selected_completion_index: 0,
-            raw_mode_enabled: false,
-            enable_raw_mode_on_windows: false,
         }
     }
 
     /// Enables raw mode on Windows for better keyboard input handling.
     ///
     /// Call this method before `init_terminal()` to enable raw mode on Windows.
-    /// Note: This will disable text selection in the terminal on Windows.
+    /// Note (20251210, by Mooling0602): This will disable text selection in the terminal on Windows.
+    ///   But idk why, maybe it's a bug, text selection works still. That's fine.
+    /// fyi: fully confirm and fix [PR #1](https://github.com/Mooling0602/Daemon_Console_Lite/pull/1)
     /// On non-Windows platforms, raw mode is always enabled.
-    pub fn enable_raw_mode_on_windows(&mut self) {
-        self.enable_raw_mode_on_windows = true;
+    pub fn enable_raw_mode_on_windows(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        enable_raw_mode()?;
+        Ok(())
     }
+
+    // NOTE (20251210, by Mooling0602): This method doesn't work as expected, idk the reason is.
+    //   So I uncommented this method.
+    // pub fn disable_raw_mode_on_windows(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    //     disable_raw_mode()?;
+    //     Ok(())
+    // }
 
     /// Enables tab completion and initializes the completion tree.
     pub fn enable_tab_completion(&mut self) {
@@ -197,14 +205,11 @@ impl TerminalApp {
     fn setup_terminal(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(windows)]
         {
-            if self.enable_raw_mode_on_windows {
+            if self.raw_mode_enabled {
                 enable_raw_mode()?;
-                self.raw_mode_enabled = true;
                 execute!(&mut self.stdout_handle, EnableMouseCapture, cursor::Hide)?;
             } else {
-                // On Windows, don't enable raw mode to allow text selection
-                // This means keyboard input handling may be limited
-                self.raw_mode_enabled = false;
+                // On Windows, raw mode is not enabled to allow text selection
                 execute!(&mut self.stdout_handle, cursor::Hide)?;
             }
         }
