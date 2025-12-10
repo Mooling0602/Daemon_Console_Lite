@@ -503,8 +503,16 @@ impl TerminalApp {
     /// on a new line without clearing first.
     pub fn print_log_entry(&mut self, log_line: &str) {
         self.clear_input_line();
-        let _ = writeln!(self.stdout_handle, "{}", log_line);
-        let _ = self.stdout_handle.flush();
+        if log_line.contains('\n') {
+            for line in log_line.lines() {
+                let _ = writeln!(self.stdout_handle, "{}", line);
+                let _ = execute!(self.stdout_handle, cursor::MoveToColumn(0));
+            }
+        } else {
+            let _ = writeln!(self.stdout_handle, "{}", log_line);
+            let _ = self.stdout_handle.flush();
+        }
+
         let _ = execute!(self.stdout_handle, cursor::MoveToColumn(0));
         let _ = self.render_input_line_no_clear();
     }
