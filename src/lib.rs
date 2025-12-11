@@ -83,9 +83,8 @@ impl TerminalApp {
 
     /// Creates a new terminal application instance with default settings.
     ///
-    /// On Windows, raw mode is disabled by default to allow text selection.
-    /// Call `enable_raw_mode_on_windows()` before `init_terminal()` if you need
-    /// full keyboard input handling (but this will disable text selection).
+    /// Some attributes are allowed to be modified later, like `app_name`.
+    /// If you want to disallow text selection, set `app.raw_mode_enabled` to `true`.
     pub fn new() -> Self {
         Self {
             stdout_handle: stdout(),
