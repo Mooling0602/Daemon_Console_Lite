@@ -24,12 +24,13 @@ pub mod tab;
 pub mod utils;
 
 use crossterm::{
-    cursor,
+    cursor::{self, RestorePosition, SavePosition},
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
         KeyModifiers, poll,
     },
     execute,
+    style::{Color, ResetColor, SetForegroundColor},
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 use std::io::{Stdout, Write, stdout};
@@ -104,25 +105,6 @@ impl TerminalApp {
         }
     }
 
-    /// Enables raw mode on Windows for better keyboard input handling.
-    ///
-    /// Call this method before `init_terminal()` to enable raw mode on Windows.
-    /// Note (20251210, by Mooling0602): This will disable text selection in the terminal on Windows.
-    ///   But idk why, maybe it's a bug, text selection works still. That's fine.
-    /// fyi: fully confirm and fix [PR #1](https://github.com/Mooling0602/Daemon_Console_Lite/pull/1)
-    /// On non-Windows platforms, raw mode is always enabled.
-    pub fn enable_raw_mode_on_windows(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        enable_raw_mode()?;
-        Ok(())
-    }
-
-    // NOTE (20251210, by Mooling0602): This method doesn't work as expected, idk the reason is.
-    //   So I uncommented this method.
-    // pub fn disable_raw_mode_on_windows(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-    //     disable_raw_mode()?;
-    //     Ok(())
-    // }
-
     /// Enables tab completion and initializes the completion tree.
     pub fn enable_tab_completion(&mut self) {
         self.tab_tree = Some(TabTree::new());
@@ -194,30 +176,23 @@ impl TerminalApp {
             self.print_startup_message(startup_message).await?;
         }
 
+        enable_raw_mode()?;
+
         Ok(())
     }
 
     /// Sets up the terminal in raw mode and enables mouse capture
     ///
-    /// On Windows, raw mode is disabled by default to allow text selection.
-    /// Call `enable_raw_mode_on_windows()` before `init_terminal()` if you need
-    /// full keyboard input handling (but this will disable text selection).
+    /// Raw mode is disabled by default to allow text selection.
+    /// Later, raw mode will be enabled in `init_terminal()`, make sure key events can be handled fine.
+    /// Due to some unknown reason, in this case, text selection still works.
+    /// If you want to disallow text selection, set `app.raw_mode_enabled` to `true`.
     fn setup_terminal(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        #[cfg(windows)]
-        {
-            if self.raw_mode_enabled {
-                enable_raw_mode()?;
-                execute!(&mut self.stdout_handle, EnableMouseCapture, cursor::Hide)?;
-            } else {
-                // On Windows, raw mode is not enabled to allow text selection
-                execute!(&mut self.stdout_handle, cursor::Hide)?;
-            }
-        }
-        #[cfg(not(windows))]
-        {
+        if self.raw_mode_enabled {
             enable_raw_mode()?;
-            self.raw_mode_enabled = true;
             execute!(&mut self.stdout_handle, EnableMouseCapture, cursor::Hide)?;
+        } else {
+            execute!(&mut self.stdout_handle, cursor::Hide)?;
         }
 
         self.stdout_handle.flush()?;
@@ -382,7 +357,7 @@ impl TerminalApp {
             execute!(self.stdout_handle, cursor::Show)?;
         }
         writeln!(self.stdout_handle, "{}", exit_message)?;
-        self.stdout_handle.flush()?;
+        let _ = execute!(self.stdout_handle, cursor::MoveToColumn(0));
         Ok(())
     }
 
@@ -510,9 +485,9 @@ impl TerminalApp {
             }
         } else {
             let _ = writeln!(self.stdout_handle, "{}", log_line);
-            let _ = self.stdout_handle.flush();
         }
 
+        // let _ = self.stdout_handle.flush();
         let _ = execute!(self.stdout_handle, cursor::MoveToColumn(0));
         let _ = self.render_input_line_no_clear();
     }
@@ -600,9 +575,6 @@ impl TerminalApp {
     /// Displays up to 5 completion candidates with smooth scrolling. The selected
     /// candidate is always visible and highlighted in cyan, others in dark gray.
     fn render_completion_hints(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        use crossterm::cursor::{RestorePosition, SavePosition};
-        use crossterm::style::{Color, ResetColor, SetForegroundColor};
-
         let total_count = self.current_completions.len();
         let max_display = 5;
 

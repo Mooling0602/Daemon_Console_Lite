@@ -82,10 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = TerminalApp::new();
     let mut node_counter: usize = 0;
 
-    // Enable raw mode on Windows for better keyboard input handling.
-    // Due to bug (maybe), text selection will still work.
-    let _ = app.enable_raw_mode_on_windows();
-
     app.enable_tab_completion();
     app.register_tab_completions("", &["version", "exit", "help", "config", "app"]);
     app.register_tab_completions("config", &["start", "stop", "restart", "status", "set"]);
