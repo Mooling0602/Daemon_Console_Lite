@@ -29,7 +29,7 @@ name = "daemon_console_lite"
 path = "src/lib.rs"
 
 [[bin]]
-name = "test"
+name = "dcl_test"
 path = "test/main.rs"
 
 # The profile that 'dist' will build with
