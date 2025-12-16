@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
     );
     app.init_terminal("Welcome to Daemon Console Lite!").await?;
-    app.info("Tab completion enabled! \nUse Alt+Left/Right to select, Tab to complete.");
+    app.info("Tab completion enabled! \nUse Left/Right arrows to select, Tab to complete.");
     app.debug("System initialized");
 
     while let Some(input) = app.read_input().await? {

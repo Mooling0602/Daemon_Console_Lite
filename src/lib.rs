@@ -281,26 +281,22 @@ impl TerminalApp {
                     self.render_input_line()?;
                 }
                 KeyCode::Left => {
-                    if modifiers == KeyModifiers::ALT {
-                        if !self.current_completions.is_empty()
-                            && self.selected_completion_index > 0
-                        {
-                            self.selected_completion_index -= 1;
-                            self.render_input_line()?;
-                        }
+                    if !self.current_completions.is_empty()
+                        && self.selected_completion_index > 0
+                    {
+                        self.selected_completion_index -= 1;
+                        self.render_input_line()?;
                     } else if self.cursor_position > 0 {
                         self.cursor_position -= 1;
                         self.render_input_line()?;
                     }
                 }
                 KeyCode::Right => {
-                    if modifiers == KeyModifiers::ALT {
-                        if !self.current_completions.is_empty()
-                            && self.selected_completion_index < self.current_completions.len() - 1
-                        {
-                            self.selected_completion_index += 1;
-                            self.render_input_line()?;
-                        }
+                    if !self.current_completions.is_empty()
+                        && self.selected_completion_index < self.current_completions.len() - 1
+                    {
+                        self.selected_completion_index += 1;
+                        self.render_input_line()?;
                     } else if self.cursor_position < self.current_input.chars().count() {
                         self.cursor_position += 1;
                         self.render_input_line()?;
@@ -777,7 +773,7 @@ impl TerminalApp {
 
     /// Handles Tab key press to apply the selected completion.
     ///
-    /// If a completion is selected (via Alt+Left/Right), uses that completion.
+    /// If a completion is selected (via Left/Right arrows), uses that completion.
     /// Otherwise, uses the best match from the completion tree.
     fn handle_tab_key(&mut self) {
         if !self.current_completions.is_empty()
