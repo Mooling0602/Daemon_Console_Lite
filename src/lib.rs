@@ -183,15 +183,13 @@ impl TerminalApp {
                 return;
             }
             tree.register_completions(context, completions);
-        } else {
-            if !self.warned_no_tab_tree {
-                self.logger(
-                    LogLevel::Warn,
-                    "Tab completion is not enabled. Call enable_tab_completion() first.",
-                    None,
-                );
-                self.warned_no_tab_tree = true;
-            }
+        } else if !self.warned_no_tab_tree {
+            self.logger(
+                LogLevel::Warn,
+                "Tab completion is not enabled. Call enable_tab_completion() first.",
+                None,
+            );
+            self.warned_no_tab_tree = true;
         }
     }
 
@@ -218,7 +216,7 @@ impl TerminalApp {
                 );
                 return;
             }
-            
+
             let duplicates = tree.register_completions_with_desc(context, items);
             // Warn about duplicate items
             for dup in duplicates {
@@ -236,15 +234,13 @@ impl TerminalApp {
                     None,
                 );
             }
-        } else {
-            if !self.warned_no_tab_tree {
-                self.logger(
-                    LogLevel::Warn,
-                    "Tab completion is not enabled. Call enable_tab_completion() first.",
-                    None,
-                );
-                self.warned_no_tab_tree = true;
-            }
+        } else if !self.warned_no_tab_tree {
+            self.logger(
+                LogLevel::Warn,
+                "Tab completion is not enabled. Call enable_tab_completion() first.",
+                None,
+            );
+            self.warned_no_tab_tree = true;
         }
     }
 
@@ -264,8 +260,7 @@ impl TerminalApp {
                     LogLevel::Warn,
                     &format!(
                         "Cannot add completion: would exceed limit of {}. Current count: {}",
-                        self.tab_completion_limit,
-                        current_count
+                        self.tab_completion_limit, current_count
                     ),
                     None,
                 );

@@ -8,7 +8,7 @@ pub fn get_local_timestring(time: i64) -> String {
             Local
                 .timestamp_millis_opt(0)
                 .single()
-                .unwrap_or_else(|| Local::now())
+                .unwrap_or_else(Local::now)
         });
     datetime.format("%H:%M:%S").to_string()
 }
