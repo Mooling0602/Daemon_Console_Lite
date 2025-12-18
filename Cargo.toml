@@ -1,6 +1,6 @@
 [package]
 name = "daemon_console_lite"
-version = "0.1.6"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.90.0"
 authors = ["Mooling0602 <CleMooling@outlook.com>"]
@@ -19,10 +19,10 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-crossterm = "0.29.0"
-unicode-width = "0.2.2"
-chrono = "0.4.42"
-tokio = { version = "1.48.0", features = ["time", "macros", "rt-multi-thread"] }
+crossterm = "^0.29.0"
+unicode-width = "^0.2.2"
+chrono = "^0.4.42"
+tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }
 
 [lib]
 name = "daemon_console_lite"
