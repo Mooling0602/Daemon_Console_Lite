@@ -49,20 +49,44 @@ use crate::tab::{CompletionCandidate, TabTree};
 /// - Non-blocking input handling
 /// - Tab completion support
 pub struct TerminalApp {
+    /// Handle to stdout for terminal operations
     pub stdout_handle: Stdout,
+    /// Command history for up/down navigation
     pub command_history: Vec<String>,
+    /// Current input buffer
     pub current_input: String,
+    /// Index in command history (None = not browsing history)
     pub history_index: Option<usize>,
+    /// Timestamp of last Ctrl+C press for double-tap detection
     pub last_ctrl_c: Option<Instant>,
-    pub cursor_position: usize,
+    /// A flag used to exit the application.
     pub should_exit: bool,
+    /// Application name, could be set to any valid text your like.
     pub app_name: String,
+    /// Whether raw mode is enabled
     pub raw_mode_enabled: bool,
+    /// Maximum number of tab completion options to display
+    pub tab_option_max_count: usize,
+    /// Maximum length of each tab completion option (truncated with '...' if exceeded)
+    pub tab_option_max_length: usize,
+    /// Maximum number of tab completion nodes allowed
+    tab_completion_limit: usize,
+    /// Current cursor position in the input line
+    cursor_position: usize,
+    /// Temporary storage for current input when browsing history
+    pending_input: Option<String>,
+    /// Cursor position for pending input
+    pending_cursor_position: usize,
+    /// Whether completions are currently hidden (via Esc key)
+    completions_hidden: bool,
+    /// Whether focus is currently on completions (true) or text input (false)
+    focus_on_completions: bool,
     last_key_event: Option<KeyEvent>,
     tab_tree: Option<TabTree>,
     current_completions: Vec<CompletionCandidate>,
     hints_rendered: bool,
     selected_completion_index: usize,
+    warned_no_tab_tree: bool,
 }
 
 impl Default for TerminalApp {
@@ -84,7 +108,6 @@ impl TerminalApp {
     /// Creates a new terminal application instance with default settings.
     ///
     /// Some attributes are allowed to be modified later, like `app_name`.
-    /// If you want to disallow text selection, set `app.raw_mode_enabled` to `true`.
     pub fn new() -> Self {
         Self {
             stdout_handle: stdout(),
@@ -92,21 +115,38 @@ impl TerminalApp {
             current_input: String::new(),
             history_index: None,
             last_ctrl_c: None,
-            cursor_position: 0,
             should_exit: false,
             app_name: String::from("Daemon Console"),
             raw_mode_enabled: false,
+            tab_option_max_count: 5,
+            tab_option_max_length: 10,
+            tab_completion_limit: 10000,
+            cursor_position: 0,
+            pending_input: None,
+            pending_cursor_position: 0,
+            completions_hidden: false,
+            focus_on_completions: false,
             last_key_event: None,
             tab_tree: None,
             current_completions: Vec::new(),
             hints_rendered: false,
             selected_completion_index: 0,
+            warned_no_tab_tree: false,
         }
     }
 
     /// Enables tab completion and initializes the completion tree.
     pub fn enable_tab_completion(&mut self) {
-        self.tab_tree = Some(TabTree::new());
+        if self.tab_tree.is_none() {
+            self.tab_tree = Some(TabTree::new());
+        } else {
+            self.logger(LogLevel::Warn, "Tab completion is already enabled.", None);
+        }
+    }
+
+    /// Checks if tab completion is currently enabled.
+    pub fn is_tab_completion_enabled(&self) -> bool {
+        self.tab_tree.is_some()
     }
 
     /// Registers completions for a given context.
@@ -127,7 +167,31 @@ impl TerminalApp {
     /// ```
     pub fn register_tab_completions(&mut self, context: &str, completions: &[&str]) {
         if let Some(tree) = &mut self.tab_tree {
+            // Check if adding these completions would exceed the limit
+            let current_count = tree.count_total_items();
+            if current_count + completions.len() > self.tab_completion_limit {
+                self.logger(
+                    LogLevel::Warn,
+                    &format!(
+                        "Cannot register {} completions: would exceed limit of {}. Current count: {}",
+                        completions.len(),
+                        self.tab_completion_limit,
+                        current_count
+                    ),
+                    None,
+                );
+                return;
+            }
             tree.register_completions(context, completions);
+        } else {
+            if !self.warned_no_tab_tree {
+                self.logger(
+                    LogLevel::Warn,
+                    "Tab completion is not enabled. Call enable_tab_completion() first.",
+                    None,
+                );
+                self.warned_no_tab_tree = true;
+            }
         }
     }
 
@@ -139,7 +203,48 @@ impl TerminalApp {
     /// * `items` - List of (text, description) tuples
     pub fn register_tab_completions_with_desc(&mut self, context: &str, items: &[(&str, &str)]) {
         if let Some(tree) = &mut self.tab_tree {
-            tree.register_completions_with_desc(context, items);
+            // Check if adding these completions would exceed the limit
+            let current_count = tree.count_total_items();
+            if current_count + items.len() > self.tab_completion_limit {
+                self.logger(
+                    LogLevel::Warn,
+                    &format!(
+                        "Cannot register {} completions: would exceed limit of {}. Current count: {}",
+                        items.len(),
+                        self.tab_completion_limit,
+                        current_count
+                    ),
+                    None,
+                );
+                return;
+            }
+            
+            let duplicates = tree.register_completions_with_desc(context, items);
+            // Warn about duplicate items
+            for dup in duplicates {
+                self.logger(
+                    LogLevel::Warn,
+                    &format!(
+                        "Duplicate completion item '{}' ignored in context '{}'",
+                        dup.text,
+                        if context.is_empty() {
+                            "<root>"
+                        } else {
+                            context
+                        }
+                    ),
+                    None,
+                );
+            }
+        } else {
+            if !self.warned_no_tab_tree {
+                self.logger(
+                    LogLevel::Warn,
+                    "Tab completion is not enabled. Call enable_tab_completion() first.",
+                    None,
+                );
+                self.warned_no_tab_tree = true;
+            }
         }
     }
 
@@ -152,6 +257,20 @@ impl TerminalApp {
     /// * `description` - Optional description
     pub fn add_tab_completion(&mut self, context: &str, text: &str, description: Option<&str>) {
         if let Some(tree) = &mut self.tab_tree {
+            // Check if adding this completion would exceed the limit
+            let current_count = tree.count_total_items();
+            if current_count + 1 > self.tab_completion_limit {
+                self.logger(
+                    LogLevel::Warn,
+                    &format!(
+                        "Cannot add completion: would exceed limit of {}. Current count: {}",
+                        self.tab_completion_limit,
+                        current_count
+                    ),
+                    None,
+                );
+                return;
+            }
             tree.add_completion(context, text, description);
         }
     }
@@ -272,19 +391,45 @@ impl TerminalApp {
                     should_quit = quit;
                     self.print_log_entry(&message);
                 }
-                KeyCode::Up => {
-                    self.handle_up_key();
+                KeyCode::Esc => {
+                    // Toggle completions visibility
+                    self.completions_hidden = !self.completions_hidden;
+                    self.focus_on_completions = false; // Move focus back to text input
                     self.render_input_line()?;
+                }
+                KeyCode::Up => {
+                    if self.focus_on_completions
+                        && !self.current_completions.is_empty()
+                        && !self.completions_hidden
+                    {
+                        // Move focus back to text input
+                        self.focus_on_completions = false;
+                        self.render_input_line()?;
+                    } else {
+                        self.handle_up_key();
+                        self.render_input_line()?;
+                    }
                 }
                 KeyCode::Down => {
-                    self.handle_down_key();
-                    self.render_input_line()?;
+                    if !self.focus_on_completions
+                        && !self.current_completions.is_empty()
+                        && !self.completions_hidden
+                    {
+                        // Move focus to completions
+                        self.focus_on_completions = true;
+                        self.render_input_line()?;
+                    } else {
+                        self.handle_down_key();
+                        self.render_input_line()?;
+                    }
                 }
                 KeyCode::Left => {
-                    if !self.current_completions.is_empty()
-                        && self.selected_completion_index > 0
-                    {
-                        self.selected_completion_index -= 1;
+                    if self.focus_on_completions && !self.current_completions.is_empty() {
+                        if self.selected_completion_index == 0 {
+                            self.selected_completion_index = self.current_completions.len() - 1;
+                        } else {
+                            self.selected_completion_index -= 1;
+                        }
                         self.render_input_line()?;
                     } else if self.cursor_position > 0 {
                         self.cursor_position -= 1;
@@ -292,10 +437,12 @@ impl TerminalApp {
                     }
                 }
                 KeyCode::Right => {
-                    if !self.current_completions.is_empty()
-                        && self.selected_completion_index < self.current_completions.len() - 1
-                    {
-                        self.selected_completion_index += 1;
+                    if self.focus_on_completions && !self.current_completions.is_empty() {
+                        if self.selected_completion_index == self.current_completions.len() - 1 {
+                            self.selected_completion_index = 0;
+                        } else {
+                            self.selected_completion_index += 1;
+                        }
                         self.render_input_line()?;
                     } else if self.cursor_position < self.current_input.chars().count() {
                         self.cursor_position += 1;
@@ -500,6 +647,29 @@ impl TerminalApp {
             .sum::<usize>()
     }
 
+    /// Truncates a string to the specified maximum length, adding "..." if truncated.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text to truncate
+    /// * `max_length` - Maximum length including the "..." suffix
+    ///
+    /// # Returns
+    ///
+    /// Truncated string with "..." if it exceeds max_length, otherwise the original string
+    fn truncate_text(&self, text: &str, max_length: usize) -> String {
+        if text.chars().count() <= max_length {
+            return text.to_string();
+        }
+
+        if max_length <= 3 {
+            return "...".to_string();
+        }
+
+        let truncated_chars: Vec<char> = text.chars().take(max_length - 3).collect();
+        format!("{}...", truncated_chars.iter().collect::<String>())
+    }
+
     /// Renders prompt, input text, and completion hints.
     ///
     /// This is the core rendering logic shared by both `render_input_line()`
@@ -567,11 +737,18 @@ impl TerminalApp {
     /// `SavePosition`/`RestorePosition` to render hints without permanently
     /// affecting the cursor position. Sets `hints_rendered` to true.
     ///
-    /// Displays up to 5 completion candidates with smooth scrolling. The selected
+    /// Displays up to tab_option_max_count completion candidates with smooth scrolling. The selected
     /// candidate is always visible and highlighted in cyan, others in dark gray.
+    /// Each candidate is truncated to tab_option_max_length characters if needed.
     fn render_completion_hints(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Don't render if completions are hidden
+        if self.completions_hidden {
+            self.hints_rendered = false;
+            return Ok(());
+        }
+
         let total_count = self.current_completions.len();
-        let max_display = 5;
+        let max_display = self.tab_option_max_count;
 
         // Calculate the display window to ensure the selected item is visible
         let (start_idx, end_idx) = if total_count <= max_display {
@@ -621,7 +798,7 @@ impl TerminalApp {
             }
 
             let is_selected = idx == self.selected_completion_index;
-            let color = if is_selected {
+            let color = if is_selected && self.focus_on_completions {
                 Color::Cyan
             } else {
                 Color::DarkGrey
@@ -630,12 +807,40 @@ impl TerminalApp {
             execute!(self.stdout_handle, SetForegroundColor(color))?;
 
             let mut item_text = String::from("[");
-            item_text.push_str(&candidate.completion);
-            if let Some(desc) = &candidate.description {
-                item_text.push_str(": ");
-                item_text.push_str(desc);
+
+            // Handle special case: empty completion with description
+            if candidate.completion.is_empty() && candidate.description.is_some() {
+                // Use angle brackets format: <description>
+                item_text.clear();
+                item_text.push('<');
+                item_text.push_str(candidate.description.as_ref().unwrap_or(&String::from("")));
+                item_text.push('>');
+            } else if self.current_completions.len() == 1 {
+                // If there's only one completion, don't truncate to show full information
+                item_text.push_str(&candidate.completion);
+                if let Some(desc) = &candidate.description {
+                    item_text.push_str(": ");
+                    item_text.push_str(desc);
+                }
+                item_text.push(']');
+            } else {
+                // Truncate the completion text if it exceeds the maximum length
+                let truncated_completion =
+                    self.truncate_text(&candidate.completion, self.tab_option_max_length);
+                item_text.push_str(&truncated_completion);
+                if let Some(desc) = &candidate.description {
+                    item_text.push_str(": ");
+                    // Truncate the description if it exceeds the maximum length
+                    let truncated_desc = self.truncate_text(desc, self.tab_option_max_length);
+                    item_text.push_str(&truncated_desc);
+                }
+                item_text.push(']');
             }
-            item_text.push(']');
+
+            // Add indicator if this is the focused completion
+            // if is_selected && self.focus_on_completions {
+            //     item_text.push('*');
+            // }
 
             execute!(self.stdout_handle, crossterm::style::Print(&item_text))?;
         }
@@ -709,6 +914,13 @@ impl TerminalApp {
         if self.command_history.is_empty() {
             return;
         }
+
+        // Save current input if we're at the end (no history selected yet)
+        if self.history_index.is_none() {
+            self.pending_input = Some(self.current_input.clone());
+            self.pending_cursor_position = self.cursor_position;
+        }
+
         let new_index = match self.history_index {
             Some(idx) if idx > 0 => idx - 1,
             Some(_) => return,
@@ -726,8 +938,14 @@ impl TerminalApp {
             Some(idx) if idx < self.command_history.len() - 1 => idx + 1,
             Some(_) => {
                 self.history_index = None;
-                self.current_input.clear();
-                self.cursor_position = 0;
+                // Restore pending input if available, otherwise clear
+                if let Some(pending) = self.pending_input.take() {
+                    self.current_input = pending;
+                    self.cursor_position = self.pending_cursor_position;
+                } else {
+                    self.current_input.clear();
+                    self.cursor_position = 0;
+                }
                 self.update_completions();
                 return;
             }
@@ -929,6 +1147,11 @@ impl TerminalApp {
     /// }
     /// ```
     pub fn logger(&mut self, level: LogLevel, message: &str, module_name: Option<&str>) {
+        let module_name = if module_name.is_none() {
+            Some(self.app_name.as_str())
+        } else {
+            module_name
+        };
         let formatted_message = match level {
             LogLevel::Info => {
                 if let Some(module) = module_name {

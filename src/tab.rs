@@ -132,12 +132,20 @@ impl TabTree {
     ///
     /// * `context` - The input prefix that triggers these completions
     /// * `items` - List of (text, description) tuples
-    pub fn register_completions_with_desc(&mut self, context: &str, items: &[(&str, &str)]) {
+    ///
+    /// # Returns
+    ///
+    /// Vector of duplicate items that were skipped
+    pub fn register_completions_with_desc(
+        &mut self,
+        context: &str,
+        items: &[(&str, &str)],
+    ) -> Vec<CompletionItem> {
         let completion_items: Vec<CompletionItem> = items
             .iter()
             .map(|&(text, desc)| CompletionItem::new(text).with_description(desc))
             .collect();
-        self.register_completions_advanced(context, completion_items, MatchStrategy::default());
+        self.register_completions_advanced(context, completion_items, MatchStrategy::default())
     }
 
     /// Registers completions with the custom match strategy.
@@ -147,23 +155,44 @@ impl TabTree {
     /// * `context` - The input prefix that triggers these completions
     /// * `items` - List of completion items
     /// * `strategy` - Matching strategy to use
+    ///
+    /// # Returns
+    ///
+    /// Vector of duplicate items that were skipped
     pub fn register_completions_advanced(
         &mut self,
         context: &str,
         items: Vec<CompletionItem>,
         strategy: MatchStrategy,
-    ) {
+    ) -> Vec<CompletionItem> {
         let trigger = if context.is_empty() {
             None
         } else {
             Some(context.to_string())
         };
 
+        let mut duplicates = Vec::new();
+
         // Find or create the node
         if let Some(node) = self.find_or_create_node(trigger.as_deref()) {
-            node.completions.extend(items);
+            // Check for duplicates and warn about them
+            for new_item in &items {
+                let is_duplicate = node
+                    .completions
+                    .iter()
+                    .any(|existing_item| existing_item.text == new_item.text);
+
+                if is_duplicate {
+                    duplicates.push(new_item.clone());
+                    continue; // Skip duplicate items
+                }
+
+                node.completions.push(new_item.clone());
+            }
             node.match_strategy = strategy;
         }
+
+        duplicates
     }
 
     /// Adds a single completion item to an existing context.
@@ -191,45 +220,43 @@ impl TabTree {
 
     /// Finds or creates a node with the given trigger.
     fn find_or_create_node(&mut self, trigger: Option<&str>) -> Option<&mut TabNode> {
-        if trigger.is_none() {
-            return Some(&mut self.root);
-        }
-
-        let trigger_str = trigger.unwrap();
-
-        // Try to find the existing node
-        fn find_node_exists(node: &TabNode, trigger: &str) -> bool {
-            if node.trigger.as_deref() == Some(trigger) {
-                return true;
-            }
-            for child in &node.children {
-                if find_node_exists(child, trigger) {
+        if let Some(trigger_str) = trigger {
+            // Try to find the existing node
+            fn find_node_exists(node: &TabNode, trigger: &str) -> bool {
+                if node.trigger.as_deref() == Some(trigger) {
                     return true;
                 }
-            }
-            false
-        }
-
-        // If the node doesn't exist, create it
-        if !find_node_exists(&self.root, trigger_str) {
-            let new_node = TabNode::new(Some(trigger_str.to_string()));
-            self.root.children.push(new_node);
-        }
-
-        // Now find and return a mutable reference
-        fn find_node_mut<'a>(node: &'a mut TabNode, trigger: &str) -> Option<&'a mut TabNode> {
-            if node.trigger.as_deref() == Some(trigger) {
-                return Some(node);
-            }
-            for child in &mut node.children {
-                if let Some(found) = find_node_mut(child, trigger) {
-                    return Some(found);
+                for child in &node.children {
+                    if find_node_exists(child, trigger) {
+                        return true;
+                    }
                 }
+                false
             }
-            None
-        }
 
-        find_node_mut(&mut self.root, trigger_str)
+            // If the node doesn't exist, create it
+            if !find_node_exists(&self.root, trigger_str) {
+                let new_node = TabNode::new(Some(trigger_str.to_string()));
+                self.root.children.push(new_node);
+            }
+
+            // Now find and return a mutable reference
+            fn find_node_mut<'a>(node: &'a mut TabNode, trigger: &str) -> Option<&'a mut TabNode> {
+                if node.trigger.as_deref() == Some(trigger) {
+                    return Some(node);
+                }
+                for child in &mut node.children {
+                    if let Some(found) = find_node_mut(child, trigger) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+
+            find_node_mut(&mut self.root, trigger_str)
+        } else {
+            Some(&mut self.root)
+        }
     }
 
     /// Finds the deepest matching node for the given input.
@@ -347,6 +374,18 @@ impl TabTree {
     pub fn clear_cache(&mut self) {
         self.last_input.clear();
         self.current_candidates.clear();
+    }
+
+    /// Counts the total number of completion items in the tree.
+    pub fn count_total_items(&self) -> usize {
+        fn count_node(node: &TabNode) -> usize {
+            let mut count = node.completions.len();
+            for child in &node.children {
+                count += count_node(child);
+            }
+            count
+        }
+        count_node(&self.root)
     }
 }
 

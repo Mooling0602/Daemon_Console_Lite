@@ -82,9 +82,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = TerminalApp::new();
     let mut node_counter: usize = 0;
 
+    // Configure tab completion display options
+    app.tab_option_max_count = 5; // Show up to 5 completion options
+    app.tab_option_max_length = 10; // Truncate options longer than 10 characters
+
     app.enable_tab_completion();
-    app.register_tab_completions("", &["version", "exit", "help", "config", "app"]);
+    app.register_tab_completions(
+        "",
+        &["version", "exit", "help", "config", "app", "add-node"],
+    );
     app.register_tab_completions("config", &["start", "stop", "restart", "status", "set"]);
+    app.register_tab_completions_with_desc(
+        "add-node ",
+        &[
+            ("", "int: Type should be an integer here."),
+            ("", "Type should be an integer here."),
+        ],
+    );
     app.register_tab_completions_with_desc(
         "app",
         &[("set-name ", "Set the name of the application.")],
@@ -97,8 +111,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("timeout", "Set timeout."),
         ],
     );
+
+    // Register some long completion options to test truncation
+    app.register_tab_completions(
+        "",
+        &[
+            "very-long-command-name",
+            "another-extremely-long-option",
+            "super-duper-extra-long-command",
+        ],
+    );
+
     app.init_terminal("Welcome to Daemon Console Lite!").await?;
-    app.info("Tab completion enabled! \nUse Left/Right arrows to select, Tab to complete.");
+    if app.is_tab_completion_enabled() {
+        app.info("Tab completion enabled!");
+    }
     app.debug("System initialized");
 
     while let Some(input) = app.read_input().await? {
