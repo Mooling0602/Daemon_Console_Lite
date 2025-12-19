@@ -87,6 +87,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.tab_option_max_length = 10; // Truncate options longer than 10 characters
 
     app.enable_tab_completion();
+
+    app.init_terminal("Welcome to Daemon Console Lite!").await?;
+    if app.is_tab_completion_enabled() {
+        app.info("Tab completion enabled!");
+    }
+
     app.register_tab_completions(
         "",
         &["version", "exit", "help", "config", "app", "add-node"],
@@ -122,10 +128,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
     );
 
-    app.init_terminal("Welcome to Daemon Console Lite!").await?;
-    if app.is_tab_completion_enabled() {
-        app.info("Tab completion enabled!");
-    }
     app.debug("System initialized");
 
     while let Some(input) = app.read_input().await? {
