@@ -1,8 +1,8 @@
 [package]
 name = "daemon_console_lite"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-rust-version = "1.90.0"
+rust-version = "1.91.1"
 authors = ["Mooling0602 <CleMooling@outlook.com>"]
 description = "A simple console library for daemon applications."
 repository = "https://github.com/Mooling0602/Daemon_Console_Lite"
@@ -21,8 +21,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 crossterm = "^0.29.0"
 unicode-width = "^0.2.2"
-chrono = "^0.4.42"
-tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }
+chrono = "^0.4.43"
+tokio = { version = "1.49.0", features = ["time", "macros", "rt-multi-thread"] }
 
 [lib]
 name = "daemon_console_lite"
