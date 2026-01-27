@@ -74,7 +74,7 @@ pub struct TerminalApp {
     pending_input: Option<String>,
     /// Cursor position for pending input
     pending_cursor_position: usize,
-    /// Whether completions are currently hidden (via Esc key)
+    /// Whether completions are currently hidden
     completions_hidden: bool,
     /// Whether focus is currently on completions (true) or text input (false)
     focus_on_completions: bool,
