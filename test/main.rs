@@ -82,10 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = TerminalApp::new();
     let mut node_counter: usize = 0;
 
-    // Configure tab completion display options
-    app.tab_option_max_count = 5; // Show up to 5 completion options
-    app.tab_option_max_length = 10; // Truncate options longer than 10 characters
-
     app.enable_tab_completion();
 
     app.init_terminal("Welcome to Daemon Console Lite!").await?;

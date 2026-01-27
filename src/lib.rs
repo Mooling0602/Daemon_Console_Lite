@@ -31,11 +31,11 @@ use crossterm::{
     },
     execute,
     style::{Color, ResetColor, SetForegroundColor},
-    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
+    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
 use std::io::{Stdout, Write, stdout};
 use std::time::Instant;
-use unicode_width::UnicodeWidthChar;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::logger::LogLevel;
 use crate::tab::{CompletionCandidate, TabTree};
@@ -65,10 +65,7 @@ pub struct TerminalApp {
     pub app_name: String,
     /// Whether raw mode is enabled
     pub raw_mode_enabled: bool,
-    /// Maximum number of tab completion options to display
-    pub tab_option_max_count: usize,
-    /// Maximum length of each tab completion option (truncated with '...' if exceeded)
-    pub tab_option_max_length: usize,
+
     /// Maximum number of tab completion nodes allowed
     tab_completion_limit: usize,
     /// Current cursor position in the input line
@@ -95,6 +92,11 @@ impl Default for TerminalApp {
     }
 }
 
+/// Helper to calculate width of a slice of chars
+fn width_of_chars(chars: &[char]) -> usize {
+    chars.iter().map(|c| c.width().unwrap_or(0)).sum()
+}
+
 impl TerminalApp {
     /// Removes a character at a specific index in a string.
     fn remove_char_at(&mut self, index: usize) {
@@ -118,8 +120,7 @@ impl TerminalApp {
             should_exit: false,
             app_name: String::from("Daemon Console"),
             raw_mode_enabled: false,
-            tab_option_max_count: 5,
-            tab_option_max_length: 10,
+
             tab_completion_limit: 10000,
             cursor_position: 0,
             pending_input: None,
@@ -387,65 +388,105 @@ impl TerminalApp {
                     self.print_log_entry(&message);
                 }
                 KeyCode::Esc => {
-                    // Toggle completions visibility
-                    self.completions_hidden = !self.completions_hidden;
-                    self.focus_on_completions = false; // Move focus back to text input
+                    self.completions_hidden = true;
+                    self.focus_on_completions = false;
                     self.render_input_line()?;
                 }
                 KeyCode::Up => {
-                    if self.focus_on_completions
-                        && !self.current_completions.is_empty()
-                        && !self.completions_hidden
-                    {
-                        // Move focus back to text input
+                    if self.focus_on_completions {
+                        // Candidate area -> Command prompt
                         self.focus_on_completions = false;
                         self.render_input_line()?;
                     } else {
+                        // Command prompt history navigation
                         self.handle_up_key();
                         self.render_input_line()?;
                     }
                 }
                 KeyCode::Down => {
-                    if !self.focus_on_completions
-                        && !self.current_completions.is_empty()
-                        && !self.completions_hidden
-                    {
-                        // Move focus to completions
-                        self.focus_on_completions = true;
-                        self.render_input_line()?;
+                    if self.focus_on_completions {
+                        // Already in candidates, maybe wrap or stay? User said "Left/Right move highlight".
+                        // "Up moves back". Down isn't specified for candidate nav, but usually does nothing or wraps?
+                        // Let's keep it doing nothing or maybe looping?
+                        // User request: "Candidate area can only press Up key to switch back to command prompt"
+                        // So Down in candidate area does nothing.
                     } else {
-                        self.handle_down_key();
-                        self.render_input_line()?;
+                        // In command prompt
+                        // "From command prompt press key found no new history command, then switch to candidate area"
+                        // This corresponds to when history_index is None (editing current line) or at the very end.
+                        if self.history_index.is_none() {
+                            if !self.current_completions.is_empty() && !self.completions_hidden {
+                                self.focus_on_completions = true;
+                                self.render_input_line()?;
+                            }
+                        } else {
+                            // Try to move down in history
+                            self.handle_down_key();
+                            // If after moving down we are now at the "current" input (None),
+                            // we don't automatically jump to completions yet, user needs to press Down again.
+                            // Logic matching: "press key found no new history command" -> which implies the press *failed* to find new history.
+                            // My handle_down_key moves to None if at last history item.
+                            // So if we *were* at None, we go to completions.
+                            self.render_input_line()?;
+                        }
                     }
                 }
                 KeyCode::Left => {
-                    if self.focus_on_completions && !self.current_completions.is_empty() {
+                    if self.focus_on_completions
+                        && !self.completions_hidden
+                        && !self.current_completions.is_empty()
+                    {
                         if self.selected_completion_index == 0 {
                             self.selected_completion_index = self.current_completions.len() - 1;
                         } else {
                             self.selected_completion_index -= 1;
                         }
                         self.render_input_line()?;
-                    } else if self.cursor_position > 0 {
-                        self.cursor_position -= 1;
-                        self.render_input_line()?;
+                    } else {
+                        // Ensure focus is reset if we fell through (e.g. was focused but now hidden)
+                        self.focus_on_completions = false;
+                        if self.cursor_position > 0 {
+                            self.cursor_position -= 1;
+                            self.render_input_line()?;
+                        }
                     }
                 }
                 KeyCode::Right => {
-                    if self.focus_on_completions && !self.current_completions.is_empty() {
+                    if self.focus_on_completions
+                        && !self.completions_hidden
+                        && !self.current_completions.is_empty()
+                    {
                         if self.selected_completion_index == self.current_completions.len() - 1 {
                             self.selected_completion_index = 0;
                         } else {
                             self.selected_completion_index += 1;
                         }
                         self.render_input_line()?;
-                    } else if self.cursor_position < self.current_input.chars().count() {
-                        self.cursor_position += 1;
-                        self.render_input_line()?;
+                    } else {
+                        // Ensure focus is reset if we fell through
+                        self.focus_on_completions = false;
+
+                        // In command prompt
+                        if self.cursor_position < self.current_input.chars().count() {
+                            // Normal move right
+                            self.cursor_position += 1;
+                            self.render_input_line()?;
+                        } else {
+                            // At end of input -> "Jump to below to move candidate area highlight"
+                            if !self.current_completions.is_empty() && !self.completions_hidden {
+                                self.focus_on_completions = true;
+                                self.render_input_line()?;
+                            }
+                        }
                     }
                 }
                 KeyCode::Tab => {
-                    self.handle_tab_key();
+                    // "Tab candidates rendered -> Tab completes. Not rendered -> Tab toggles"
+                    if !self.completions_hidden && !self.current_completions.is_empty() {
+                        self.handle_tab_key();
+                    } else {
+                        self.completions_hidden = !self.completions_hidden;
+                    }
                     self.render_input_line()?;
                 }
                 KeyCode::Enter => {
@@ -469,6 +510,12 @@ impl TerminalApp {
                 }
                 _ => {}
             }
+        } else if let Event::Resize(_, _) = event {
+            // When terminal is resized, we should hide completions to prevent visual artifacts
+            // and require user to request them again or type to see them.
+            self.completions_hidden = true;
+            self.focus_on_completions = false;
+            self.render_input_line()?;
         }
         Ok(should_quit)
     }
@@ -629,19 +676,6 @@ impl TerminalApp {
         let _ = self.render_input_line_no_clear();
     }
 
-    /// Calculates the visual cursor position accounting for Unicode character widths.
-    ///
-    /// Returns the column position where the cursor should be displayed,
-    /// including the 2-character prompt ("> ").
-    fn calculate_visual_cursor_pos(&self) -> usize {
-        2 + self
-            .current_input
-            .chars()
-            .take(self.cursor_position)
-            .map(|c| c.width().unwrap_or(0))
-            .sum::<usize>()
-    }
-
     /// Truncates a string to the specified maximum length, adding "..." if truncated.
     ///
     /// # Arguments
@@ -669,21 +703,228 @@ impl TerminalApp {
     ///
     /// This is the core rendering logic shared by both `render_input_line()`
     /// and `render_input_line_no_clear()`.
+    /// Renders prompt, input text, and completion hints.
+    ///
+    /// This is the core rendering logic shared by both `render_input_line()`
+    /// and `render_input_line_no_clear()`.
+    ///
+    /// Handles text truncation if the input line exceeds the terminal width,
+    /// adding "..." at the start or end to keep the cursor visible.
     fn render_input_content(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let (term_cols, _) = size()?;
+        let term_width = term_cols as usize;
+        let prompt_width = 2; // "> "
+        let available_width = term_width.saturating_sub(prompt_width).saturating_sub(1); // -1 safety
+
+        let input_chars: Vec<char> = self.current_input.chars().collect();
+        let input_len = input_chars.len();
+
+        // Calculate total display width of the full input
+        let total_input_width = self.current_input.width();
+
+        let (display_text, visual_idx_start) = if total_input_width <= available_width {
+            (self.current_input.clone(), 0)
+        } else {
+            // Need truncation.
+            // We want to keep cursor visible.
+            // Window strategy:
+            // available_width is the constraint (in columns).
+            // ellipsis takes 3 columns.
+
+            // Convert cursor index (char index) to visual offset? No, simpler to operate on char indices first?
+            // Widths vary. We must iterate.
+
+            let cursor_char_idx = self.cursor_position;
+
+            // Determining the window [start_char_idx, end_char_idx]
+            // We blindly try to center the cursor or just keep it in view?
+            // User: "If too long, hide front..., move back hide back...".
+            // This suggests: if cursor is at end, show tail. If cursor is at start, show head.
+
+            // Let's find a range of characters [start, end] such that:
+            // 1. start <= cursor <= end
+            // 2. width(chars[start..end]) + markers <= available_width
+            // 3. Maximizes visible content (greedy).
+
+            // Simplistic approach:
+            // If cursor is near end (right side), anchor right.
+            // If cursor is near start (left side), anchor left.
+
+            // Let's walk and measure.
+
+            // Determine required left ellipsis
+            // If we are showing from the very first char, no left ellipsis.
+            // If we skip chars, we need left ellipsis "..." (width 3).
+
+            // Determine required right ellipsis
+            // If we show until the last char, no right ellipsis.
+            // Otherwise, right ellipsis "...".
+
+            // This is actually a bit circular (need range to know ellipsis, need ellipsis to know range).
+            // Heuristic:
+            // 1. Try showing from char 0. If cursor fits and end fits -> done (already covered by total check).
+            // 2. If cursor is comfortably inside the first N chars that fit -> show head, add tail "..."
+            // 3. If cursor is deep?
+
+            // Robust sliding window:
+            // Center the window around cursor?
+            // Target width = available_width
+
+            // Step 1: scan widths of all chars
+            let char_widths: Vec<usize> =
+                input_chars.iter().map(|c| c.width().unwrap_or(0)).collect();
+
+            // Find visible range [idx_l, idx_r) (char indices)
+            let mut idx_l;
+            let mut idx_r;
+
+            // Check if head fits (cursor must be visible)
+            // Try [0, idx_r] such that width fits.
+            // If cursor <= idx_r, we can show head.
+            // Check width of [0 .. something] + 3 ("...")
+
+            let mut current_width = 0;
+            let mut limit = 0; // how many chars fit from start
+            for (i, w) in char_widths.iter().enumerate() {
+                if current_width + w + 3 > available_width {
+                    break;
+                }
+                current_width += w;
+                limit = i + 1;
+            }
+
+            if cursor_char_idx <= limit && limit < input_len {
+                // Cursor is in the "Head" part, and we can't show everything.
+                // Show: chars[0..limit] + "..."
+                idx_l = 0;
+                idx_r = limit;
+                // Optimization: maybe we can squeeze one more char if "..." fits exactly?
+                // My loop broke early. current_width + 3 <= available.
+            } else {
+                // Cursor is not in the simple head view.
+                // Try "Tail" view?
+                // Calculate width backwards from end.
+                // needed chars + 3 ("...") <= available
+
+                let mut tail_width = 0;
+                let mut start_from = input_len;
+                for (i, w) in char_widths.iter().enumerate().rev() {
+                    if tail_width + w + 3 > available_width {
+                        break;
+                    }
+                    tail_width += w;
+                    start_from = i;
+                }
+
+                if cursor_char_idx >= start_from {
+                    // Cursor is in the tail view.
+                    // Show "..." + chars[start_from..input_len]
+                    idx_l = start_from;
+                    idx_r = input_len; // all the way to end
+                // Note: logic implies we hide start.
+                } else {
+                    // Cursor is in the middle. We need "..." + content + "..."
+                    // Width available for content = available_width - 6.
+                    // Center around cursor.
+
+                    // Width of chars up to cursor
+                    // let _width_before = char_widths[0..cursor_char_idx].iter().sum::<usize>();
+
+                    // We need to pick idx_l and idx_r such that idx_l < cursor < idx_r
+                    // and char_widths[idx_l..idx_r].sum() <= available_width - 6
+
+                    // Let's expand outwards from cursor
+                    let content_budget = available_width.saturating_sub(6);
+                    idx_l = cursor_char_idx;
+                    idx_r = cursor_char_idx; // idx_r is exclusive? Let's say idx_r exclusive.
+                    // Initially include the char at cursor (if any, cursor can be at len)
+                    // If cursor at len, it's effectively tail view, captured above?
+                    // If cursor == input_len, `start_from` loop ensures it's caught (since start_from <= input_len).
+
+                    if cursor_char_idx == input_len {
+                        // Should have been tail view
+                        // But for safety:
+                        idx_l = input_len.saturating_sub(1);
+                        idx_r = input_len;
+                    }
+
+                    let mut used = 0;
+                    // Expand
+                    loop {
+                        let mut expanded = false;
+                        // Try left
+                        if idx_l > 0 && used + char_widths[idx_l - 1] <= content_budget {
+                            idx_l -= 1;
+                            used += char_widths[idx_l];
+                            expanded = true;
+                        }
+                        // Try right
+                        if idx_r < input_len && used + char_widths[idx_r] <= content_budget {
+                            used += char_widths[idx_r]; // idx_r is newly added char index
+                            idx_r += 1;
+                            expanded = true;
+                        }
+                        if !expanded {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Construct string
+            let sub: String = input_chars[idx_l..idx_r].iter().collect();
+            let mut out = String::new();
+
+            let has_left_ellipsis = idx_l > 0;
+            let has_right_ellipsis = idx_r < input_len;
+
+            if has_left_ellipsis {
+                out.push_str("...");
+            }
+            out.push_str(&sub);
+            if has_right_ellipsis {
+                out.push_str("...");
+            }
+
+            (
+                out,
+                if has_left_ellipsis { 3 } else { 0 }
+                    + width_of_chars(&input_chars[idx_l..cursor_char_idx]),
+            )
+        };
+
         execute!(
             self.stdout_handle,
             crossterm::style::Print("> "),
-            crossterm::style::Print(&self.current_input)
+            crossterm::style::Print(&display_text)
         )?;
 
         if !self.current_completions.is_empty() {
             self.render_completion_hints()?;
         }
 
-        let visual_cursor_pos = self.calculate_visual_cursor_pos();
+        // Calculate visual cursor position
+        // If we truncated, we calculated offset above.
+        // If no truncation, we calculate normally.
+        let visual_cursor_col = if total_input_width <= available_width {
+            // Full normal calculation
+            // Re-calculate to be safe or reuse logic?
+            // self.calculate_visual_cursor_pos() helper uses full string, correct.
+            2 + self
+                .current_input
+                .chars()
+                .take(self.cursor_position)
+                .map(|c| c.width().unwrap_or(0))
+                .sum::<usize>()
+        } else {
+            // Truncated version
+            // prompt (2) + relative position calculated in if-block
+            2 + visual_idx_start
+        };
+
         execute!(
             self.stdout_handle,
-            cursor::MoveToColumn(visual_cursor_pos as u16),
+            cursor::MoveToColumn(visual_cursor_col as u16),
             cursor::Show
         )?;
         self.stdout_handle.flush()?;
@@ -728,13 +969,8 @@ impl TerminalApp {
 
     /// Renders completion hints below the input line.
     ///
-    /// Creates a new line for hints using a newline character, then uses
-    /// `SavePosition`/`RestorePosition` to render hints without permanently
-    /// affecting the cursor position. Sets `hints_rendered` to true.
-    ///
-    /// Displays up to tab_option_max_count completion candidates with smooth scrolling. The selected
-    /// candidate is always visible and highlighted in cyan, others in dark gray.
-    /// Each candidate is truncated to tab_option_max_length characters if needed.
+    /// This method dynamically calculates which completion candidates fits within the current
+    /// terminal width, ensuring the selected candidate is always visible.
     fn render_completion_hints(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Don't render if completions are hidden
         if self.completions_hidden {
@@ -742,24 +978,150 @@ impl TerminalApp {
             return Ok(());
         }
 
-        let total_count = self.current_completions.len();
-        let max_display = self.tab_option_max_count;
+        // Get current terminal size
+        let (term_cols, _) = size()?;
+        // Use a safety buffer of 1 char to absolutely prevent wrapping
+        let term_width = (term_cols as usize).saturating_sub(1);
 
-        // Calculate the display window to ensure the selected item is visible
-        let (start_idx, end_idx) = if total_count <= max_display {
-            (0, total_count)
-        } else {
-            // Center the selected item in the window when possible
-            let half_window = max_display / 2;
-            let start = if self.selected_completion_index <= half_window {
-                0
-            } else if self.selected_completion_index >= total_count - half_window {
-                total_count - max_display
+        let total_count = self.current_completions.len();
+        if total_count == 0 {
+            self.hints_rendered = false;
+            return Ok(());
+        }
+
+        // Helper closure to build the display string for a candidate
+        let get_display_text = |app: &TerminalApp, idx: usize, max_len: usize| -> String {
+            let candidate = &app.current_completions[idx];
+            let mut item_text = String::from("[");
+
+            if candidate.completion.is_empty() && candidate.description.is_some() {
+                item_text.clear();
+                item_text.push('<');
+                item_text.push_str(candidate.description.as_ref().unwrap_or(&String::from("")));
+                item_text.push('>');
+            } else if app.current_completions.len() == 1 {
+                // For single item, we might be lenient or strict. Let's respect max_len to avoid overflow.
+                let truncated_completion = app.truncate_text(&candidate.completion, max_len);
+                item_text.push_str(&truncated_completion);
+                if let Some(desc) = &candidate.description {
+                    item_text.push_str(": ");
+                    item_text.push_str(desc);
+                }
+                item_text.push(']');
             } else {
-                self.selected_completion_index - half_window
-            };
-            (start, start + max_display)
+                let truncated_completion = app.truncate_text(&candidate.completion, max_len);
+                item_text.push_str(&truncated_completion);
+                if let Some(desc) = &candidate.description {
+                    item_text.push_str(": ");
+                    let truncated_desc = app.truncate_text(desc, max_len);
+                    item_text.push_str(&truncated_desc);
+                }
+                item_text.push(']');
+            }
+            item_text
         };
+
+        // Calculate a dynamic max length per item.
+        // A minimal usable length is e.g. 10. Max is term_width - overhead.
+        let dynamic_max_len = term_width.saturating_sub(6).max(10);
+
+        // Start with the selected item
+        let mut start_idx = self.selected_completion_index;
+        let mut end_idx = self.selected_completion_index + 1; // Exclusive
+
+        let selected_text = get_display_text(self, self.selected_completion_index, dynamic_max_len);
+        let mut current_width = selected_text.width();
+
+        // Expand outwards
+        loop {
+            let hidden_left = start_idx;
+            let hidden_right = total_count - end_idx;
+
+            // Calculate overhead for hidden markers
+            let left_marker_width = if hidden_left > 0 {
+                format!(" (+{})", hidden_left).width()
+            } else {
+                0
+            };
+            let right_marker_width = if hidden_right > 0 {
+                format!(" (+{})", hidden_right).width()
+            } else {
+                0
+            };
+
+            let extra_left_space = if hidden_left > 0 { 1 } else { 0 };
+
+            // Check if we fit
+            let total_needed =
+                left_marker_width + extra_left_space + current_width + right_marker_width;
+
+            if total_needed > term_width {
+                break;
+            }
+
+            // Try to expand
+            let can_go_left = start_idx > 0;
+            let can_go_right = end_idx < total_count;
+
+            if !can_go_left && !can_go_right {
+                break;
+            }
+
+            // Strategy: Balance expansion around selection
+            let left_count = self.selected_completion_index - start_idx;
+            let right_count = end_idx - 1 - self.selected_completion_index;
+
+            let mut added = false;
+
+            if can_go_left && (left_count <= right_count || !can_go_right) {
+                let prev_idx = start_idx - 1;
+                let text = get_display_text(self, prev_idx, dynamic_max_len);
+                let added_width = 1 + text.width();
+
+                let new_hidden_left = prev_idx;
+                let new_left_marker = if new_hidden_left > 0 {
+                    format!(" (+{})", new_hidden_left).width()
+                } else {
+                    0
+                };
+                let new_extra_space = if new_hidden_left > 0 { 1 } else { 0 };
+
+                let new_content_width = current_width + added_width;
+                if new_left_marker + new_extra_space + new_content_width + right_marker_width
+                    <= term_width
+                {
+                    start_idx = prev_idx;
+                    current_width += added_width;
+                    added = true;
+                }
+            }
+
+            if !added && can_go_right {
+                let next_idx = end_idx;
+                let text = get_display_text(self, next_idx, dynamic_max_len);
+                let added_width = 1 + text.width();
+
+                let new_hidden_right = total_count - (next_idx + 1);
+                let new_right_marker = if new_hidden_right > 0 {
+                    format!(" (+{})", new_hidden_right).width()
+                } else {
+                    0
+                };
+
+                let current_total_left = left_marker_width + extra_left_space;
+
+                let new_content_width = current_width + added_width;
+                if current_total_left + new_content_width + new_right_marker <= term_width {
+                    end_idx += 1;
+                    current_width += added_width;
+                    added = true;
+                }
+            }
+
+            if !added {
+                break;
+            }
+        }
 
         execute!(
             self.stdout_handle,
@@ -771,7 +1133,6 @@ impl TerminalApp {
         let hidden_left = start_idx;
         let hidden_right = total_count - end_idx;
 
-        // Show left hidden count if any
         if hidden_left > 0 {
             execute!(
                 self.stdout_handle,
@@ -780,14 +1141,7 @@ impl TerminalApp {
             )?;
         }
 
-        // Show visible candidates
-        for (idx, candidate) in self
-            .current_completions
-            .iter()
-            .enumerate()
-            .skip(start_idx)
-            .take(end_idx - start_idx)
-        {
+        for idx in start_idx..end_idx {
             if idx > start_idx || hidden_left > 0 {
                 execute!(self.stdout_handle, crossterm::style::Print(" "))?;
             }
@@ -801,46 +1155,11 @@ impl TerminalApp {
 
             execute!(self.stdout_handle, SetForegroundColor(color))?;
 
-            let mut item_text = String::from("[");
-
-            // Handle special case: empty completion with description
-            if candidate.completion.is_empty() && candidate.description.is_some() {
-                // Use angle brackets format: <description>
-                item_text.clear();
-                item_text.push('<');
-                item_text.push_str(candidate.description.as_ref().unwrap_or(&String::from("")));
-                item_text.push('>');
-            } else if self.current_completions.len() == 1 {
-                // If there's only one completion, don't truncate to show full information
-                item_text.push_str(&candidate.completion);
-                if let Some(desc) = &candidate.description {
-                    item_text.push_str(": ");
-                    item_text.push_str(desc);
-                }
-                item_text.push(']');
-            } else {
-                // Truncate the completion text if it exceeds the maximum length
-                let truncated_completion =
-                    self.truncate_text(&candidate.completion, self.tab_option_max_length);
-                item_text.push_str(&truncated_completion);
-                if let Some(desc) = &candidate.description {
-                    item_text.push_str(": ");
-                    // Truncate the description if it exceeds the maximum length
-                    let truncated_desc = self.truncate_text(desc, self.tab_option_max_length);
-                    item_text.push_str(&truncated_desc);
-                }
-                item_text.push(']');
-            }
-
-            // Add indicator if this is the focused completion
-            // if is_selected && self.focus_on_completions {
-            //     item_text.push('*');
-            // }
-
+            // Re-generate text (a bit redundant but safe)
+            let item_text = get_display_text(self, idx, dynamic_max_len);
             execute!(self.stdout_handle, crossterm::style::Print(&item_text))?;
         }
 
-        // Show right hidden count if any
         if hidden_right > 0 {
             execute!(
                 self.stdout_handle,
