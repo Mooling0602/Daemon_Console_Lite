@@ -623,12 +623,29 @@ impl TerminalApp {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.init_terminal(startup_message).await?;
 
-        while let Some(input) = self.read_input().await? {
-            self.info(&format!("You entered: {}", input));
+        let loop_result: Result<(), Box<dyn std::error::Error>> = async {
+            while let Some(input) = self.read_input().await? {
+                self.info(&format!("You entered: {}", input));
+            }
+            Ok(())
+        }
+        .await;
+
+        let cleanup_result: Result<(), Box<dyn std::error::Error>> = (|| {
+            if self.raw_mode_enabled {
+                disable_raw_mode()?;
+                execute!(self.stdout_handle, DisableMouseCapture, cursor::Show)?;
+            } else {
+                execute!(self.stdout_handle, cursor::Show)?;
+            }
+            Ok(())
+        })();
+
+        if !exit_message.is_empty() {
+            writeln!(self.stdout_handle, "{}", exit_message)?;
         }
 
-        self.shutdown_terminal(exit_message).await?;
-        Ok(())
+        loop_result.and(cleanup_result)
     }
 
     /// Clears the current input line and completion hints if rendered.
